@@ -254,6 +254,7 @@ class CmakeBuildType(BuildType):
                         xcodebuild_flags.append(flag)
                 xcodebuild_flags += ['-configuration']
                 xcodebuild_flags += [self._get_configuration_from_cmake(context)]
+                xcodebuild_flags += ['EFFECTIVE_PLATFORM_NAME=']
                 cmd.extend(xcodebuild_flags)
                 yield BuildAction(cmd)
             else:
@@ -338,6 +339,16 @@ class CmakeBuildType(BuildType):
         else:
             raise VerbExecutionError('Could not determine operating system')
 
+    def _get_sdk_from_cmake(self, context):
+        arg_prefix = '-sdk'
+        find_sdk = False
+        for make_flag in context.make_flags:
+            if find_sdk:
+                return make_flag
+            if make_flag == arg_prefix:
+                find_sdk = True
+        return ""
+
     def _get_configuration_from_cmake(self, context):
         # check for CMake build type in the command line arguments
         arg_prefix = '-DCMAKE_BUILD_TYPE='
@@ -346,21 +357,21 @@ class CmakeBuildType(BuildType):
             if cmake_arg.startswith(arg_prefix):
                 build_type = cmake_arg[len(arg_prefix):]
                 break
-        else:
-            # get for CMake build type from the CMake cache
-            line_prefix = 'CMAKE_BUILD_TYPE:'
-            cmake_cache = os.path.join(context.build_space, 'CMakeCache.txt')
-            if os.path.exists(cmake_cache):
-                with open(cmake_cache, 'r') as h:
-                    lines = h.read().splitlines()
-                for line in lines:
-                    if line.startswith(line_prefix):
-                        try:
-                            index = line.index('=')
-                        except ValueError:
-                            continue
-                        build_type = line[index + 1:]
-                        break
+            else:
+                # get for CMake build type from the CMake cache
+                line_prefix = 'CMAKE_BUILD_TYPE:'
+                cmake_cache = os.path.join(context.build_space, 'CMakeCache.txt')
+                if os.path.exists(cmake_cache):
+                    with open(cmake_cache, 'r') as h:
+                        lines = h.read().splitlines()
+                    for line in lines:
+                        if line.startswith(line_prefix):
+                            try:
+                                index = line.index('=')
+                            except ValueError:
+                                continue
+                            build_type = line[index + 1:]
+                            break
         if build_type in ['Debug']:
             return 'Debug'
         return 'Release'
@@ -510,6 +521,10 @@ class CmakeBuildType(BuildType):
                         raise VerbExecutionError("Could not find 'xcodebuild' executable")
                     cmd = prefix + [XCODEBUILD_EXECUTABLE]
                     cmd += ['-target', 'install']
+                    cmd += ['-configuration', self._get_configuration_from_cmake(context)]
+                    if self._get_sdk_from_cmake(context) != "":
+                        cmd += ['-sdk', self._get_sdk_from_cmake(context)]
+                        cmd += ['EFFECTIVE_PLATFORM_NAME=']
                     yield BuildAction(cmd)
             else:
                 build_action = self._make_or_ninja_install(context, prefix)
